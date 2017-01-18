@@ -5,3 +5,4 @@ avr-gcc -mmcu=attiny12 -o leds.elf leds.o &&\
 avr-objcopy -j .text -O ihex leds.elf leds.hex &&\
 avr-objdump -h -d leds.elf
 
+#sudo avrdude -v -p t12 -c usbasp -Uflash:w:leds.hex -Ereset,vcc
