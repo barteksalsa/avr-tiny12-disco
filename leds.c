@@ -7,8 +7,8 @@ register unsigned char savedR25 asm("r8");     /* interrupt helper to restore r2
 register unsigned char pwmFill asm("r9");      /* current fill of PWM. 0-31 */
 register unsigned char counter asm("r10");
 register unsigned char counter2 asm("r11");
-register unsigned char bitCounter asm("r12");  /* counter for received bits */
-
+register unsigned char bitCounter asm("r12");   /* counter for received bits */
+register unsigned char receivedChar asm("r13"); /* register for received character */
 
 void disableInt0(void);
 
@@ -16,9 +16,9 @@ void disableInt0(void);
 /*
  *  PINS in PORTB setup
  */
-#define PWMOUTPIN  3
-#define DEBUGPIN   4
-
+#define PWMOUTPIN  4
+#define DEBUGPIN   3
+#define RS232PIN   1
 
 
 /*
@@ -66,17 +66,17 @@ void disableInt0(void);
  *  Using ACSR to return flags from Timer Interrupt.
  *  Register variables are non-volatile by default, so hacking is needed
  */
-void clrFlagTimerTick(void)
+void clrFlagReceivedChar(void)
 {
     ACSR &= ~_BV(0);
 }
 
-void setFlagTimerTick(void)
+void setFlagReceivedChar(void)
 {
     ACSR |= _BV(0);
 }
 
-uint8_t getFlagTimerTick(void)
+uint8_t getFlagReceivedChar(void)
 {
     return (ACSR & _BV(0));
 }
@@ -100,6 +100,24 @@ uint8_t getFlagCollectSamples(void)
 
 
 
+void clrFlag300Hz(void)
+{
+    ACSR &= ~_BV(6);
+}
+
+void setFlag300Hz(void)
+{
+    ACSR |= _BV(6);
+}
+
+uint8_t getFlag300Hz(void)
+{
+    return (ACSR & _BV(6));
+}
+
+
+
+
 /* external input interrupt handler */
 ISR(_VECTOR(1), ISR_NAKED)
 {
@@ -108,11 +126,11 @@ ISR(_VECTOR(1), ISR_NAKED)
     asm("mov r8, r25"::);
 
     /* a new pin change has shown, start counting to finish at the middle and rewind the timer */
-    TCNT0 = 256 - 117 + 60; /* TCNT0: next interrupt should come in the middle of a character */
+    TCNT0 = 256 - 20; /* TCNT0: next interrupt should come in the middle of a character */
     TIFR |= _BV(1);  /* clear TOV0 interrupt flag in case the timer just fired */
 
     setFlagCollectSamples();  /* start collecting bits */
-    bitCounter = 10; /* 10 bits for 8N1 format */
+    bitCounter = 9; /* 10 bits for 8N1 format, 0 also counts as bit */
     disableInt0();  /* disable the interrupt because in the frame there will be a few high bits */
 
     /* restore r24, r25 and return */
@@ -149,7 +167,7 @@ ISR(_VECTOR(3), ISR_NAKED)
     asm("mov r8, r25"::);
 
     /* rewind timer - must be first */
-    TCNT0 = 256 - 117; /* TCNT0: need to count 25 ticks */
+    TCNT0 = 256 - 110/*117*/; /* TCNT0: need to count 25 ticks */
 
     /* handle PWM */
     ++pwmFastCount;
@@ -157,7 +175,6 @@ ISR(_VECTOR(3), ISR_NAKED)
     {
         pwmFastCount = 0;
         PORTB |= _BV(PWMOUTPIN);  /* enable PWM pin here */
-        setFlagTimerTick(); /* 300 Hz flag */
     }
     if (pwmFastCount >= pwmFill)
     {
@@ -167,9 +184,25 @@ ISR(_VECTOR(3), ISR_NAKED)
     /* handle UART */
     if (getFlagCollectSamples())
     {
-        clrFlagCollectSamples();
-        enableInt0();
-        PORTB ^= _BV(DEBUGPIN);
+        if (bitCounter == 9)  {  --bitCounter;  receivedChar = 0;  }
+        else
+        {
+             if (bitCounter > 0)
+             {
+                 --bitCounter;
+                 receivedChar = (receivedChar >> 1);
+                 if ((PINB & _BV(RS232PIN)) == 0)
+                 {
+                     receivedChar |= 0x80; /* set bit if something comes from RS */
+                 }
+             }
+             else /* bitCounter == 0 */ 
+            {  
+                clrFlagCollectSamples(); /* re-enable reception of new characters */
+                enableInt0();
+                setFlagReceivedChar();  /* inform task that there is new character */
+            }
+        }
     }
 
     /* restore r24, r25 and return */
@@ -240,22 +273,17 @@ int main(void)
     enableSleep();
     sei();
 
-    counter = 0;
+    /* Normal loop */
     for (;;)
     {
-        if (getFlagTimerTick())
+        if (getFlagReceivedChar())
         {
             cli();
-            clrFlagTimerTick();
+            clrFlagReceivedChar();
             sei();
-            ++counter;
+            setPwm(receivedChar & 0x1F);
         }
 
-        if (counter > 20)
-        {
-            incPwm();
-            counter = 0;
-        }
         asm("sleep"::);
     }
 }
