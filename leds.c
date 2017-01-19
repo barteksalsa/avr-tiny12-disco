@@ -19,6 +19,7 @@ void disableInt0(void);
 #define PWMOUTPIN1  4
 #define PWMOUTPIN2  3
 #define PWMOUTPIN3  0
+#define PWMOUTPIN4  2
 
 #define RS232PIN   1
 
@@ -176,11 +177,13 @@ ISR(_VECTOR(3), ISR_NAKED)
     if ((pwmFastCount & 32) == 32)  /* 9600 / 32 = 300 */
     {
         pwmFastCount = 0;
-        PORTB |= _BV(PWMOUTPIN1) | _BV(PWMOUTPIN2) | _BV(PWMOUTPIN3); /* enable PWM pin here */
+        /* enable PWM pin here */
+        PORTB |= _BV(PWMOUTPIN1) | _BV(PWMOUTPIN2) | _BV(PWMOUTPIN3) | _BV(PWMOUTPIN4);
     }
     if (pwmFastCount >= pwmFill)
     {
-        PORTB &= ~(_BV(PWMOUTPIN1) | _BV(PWMOUTPIN2) | _BV(PWMOUTPIN3)); /* disable PWM pin when counter */
+        /* disable PWM pin when counter */
+        PORTB &= ~(_BV(PWMOUTPIN1) | _BV(PWMOUTPIN2) | _BV(PWMOUTPIN3) | _BV(PWMOUTPIN4));
     }
 
     /* handle UART */
@@ -269,7 +272,7 @@ int main(void)
     asm volatile("eor	r1, r1"::);
 
     /* initialise */
-    DDRB = _BV(PWMOUTPIN1) | _BV(PWMOUTPIN2) | _BV(PWMOUTPIN3);
+    DDRB = _BV(PWMOUTPIN1) | _BV(PWMOUTPIN2) | _BV(PWMOUTPIN3) | _BV(PWMOUTPIN4) ;
     calibrateOscillator();
     setupTimer();
     setupPwm();
@@ -290,7 +293,7 @@ int main(void)
                 asm("sleep"::);
             }
         }
-        setPwm(counter2 >> 1);
+        setPwm(counter2 >> 2);
     }
 
 
