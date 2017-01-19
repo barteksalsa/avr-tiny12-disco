@@ -16,8 +16,10 @@ void disableInt0(void);
 /*
  *  PINS in PORTB setup
  */
-#define PWMOUTPIN  4
-#define DEBUGPIN   3
+#define PWMOUTPIN1  4
+#define PWMOUTPIN2  3
+#define PWMOUTPIN3  0
+
 #define RS232PIN   1
 
 
@@ -174,11 +176,11 @@ ISR(_VECTOR(3), ISR_NAKED)
     if ((pwmFastCount & 32) == 32)  /* 9600 / 32 = 300 */
     {
         pwmFastCount = 0;
-        PORTB |= _BV(PWMOUTPIN);  /* enable PWM pin here */
+        PORTB |= _BV(PWMOUTPIN1) | _BV(PWMOUTPIN2) | _BV(PWMOUTPIN3); /* enable PWM pin here */
     }
     if (pwmFastCount >= pwmFill)
     {
-        PORTB &= ~_BV(PWMOUTPIN); /* disable PWM pin when counter */
+        PORTB &= ~(_BV(PWMOUTPIN1) | _BV(PWMOUTPIN2) | _BV(PWMOUTPIN3)); /* disable PWM pin when counter */
     }
 
     /* handle UART */
@@ -205,6 +207,9 @@ ISR(_VECTOR(3), ISR_NAKED)
         }
     }
 
+    /* for delay loops */
+    setFlag300Hz();
+
     /* restore r24, r25 and return */
     asm("mov r24, r7"::);
     asm("mov r25, r8"::);
@@ -227,7 +232,7 @@ void calibrateOscillator(void)
 
 void setupPwm(void)
 {
-    pwmFill = 2;
+    pwmFill = 0;
 }
 
 void setPwm(uint8_t newPwmFill)
@@ -258,20 +263,36 @@ void enableSleep(void)
     MCUCR |= _BV(SE);
 }
 
-
 int main(void)
 {
     /* hack to provide minimum C runtime */
     asm volatile("eor	r1, r1"::);
 
     /* initialise */
-    DDRB = _BV(PB3) | _BV(PB4);
+    DDRB = _BV(PWMOUTPIN1) | _BV(PWMOUTPIN2) | _BV(PWMOUTPIN3);
     calibrateOscillator();
     setupTimer();
     setupPwm();
     setupInt0();
     enableSleep();
     sei();
+
+    /* Soft start */
+    for (counter2 = 0; counter2 < 64; ++counter2)
+    {
+        for (counter = 0; counter < 250; ++counter)
+        {
+            if (getFlag300Hz())
+            {
+                cli();
+                clrFlag300Hz();
+                sei();
+                asm("sleep"::);
+            }
+        }
+        setPwm(counter2 >> 1);
+    }
+
 
     /* Normal loop */
     for (;;)
